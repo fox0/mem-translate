@@ -1,8 +1,11 @@
-from tkinter import Frame, Button, Label
-from tkinter.constants import N, INSERT, WORD
+import re
+from tkinter import Frame, Button, Label, Text
+from tkinter.constants import N, END, INSERT, WORD
 from tkinter.scrolledtext import ScrolledText
 
 __version__ = '0.0.1'
+
+DEFAULT_FONT = 'roboto', '12'
 
 
 class App(Frame):
@@ -22,7 +25,7 @@ class App(Frame):
         self.text = self.get_widget_text(row=1, column=0)
 
         Label(self, text='Нечёткие совпадения').grid(row=0, column=1)
-        self.text_fuzz = self.get_widget_text_fuzz(row=1, columm=0)
+        self.text_fuzz = self.get_widget_text_fuzz(row=1, columm=1)
 
         # self.quit = tk.Button(self, text="QUIT", fg="red", command=self.master.destroy)
         # self.quit.pack(side="bottom")
@@ -32,32 +35,47 @@ class App(Frame):
     def get_widget_text(self, row: int, column: int) -> ScrolledText:
         """Главный виджет textArea"""
         w = ScrolledText(self, bg='white', height=32, width=73, undo=True, wrap=WORD)
-        w['font'] = 'roboto', '12'
+        w['font'] = DEFAULT_FONT
         # txt.pack(expand=True, fill='both')
         w.bind('<Key>', self.handle_key_text)
-        w.insert(1.0, self.get_text())
+        self.set_text(w)
         w.grid(row=row, column=column)
         w.focus_set()
         return w
 
-    @staticmethod
-    def get_text() -> str:
-        with open('../you-can/source/01.txt') as f:
-            text = f.read()
-        return text
-
     def get_widget_text_fuzz(self, row: int, columm: int) -> ScrolledText:
         w = ScrolledText(self, bg='white', height=10, width=73, wrap=WORD)  # , state='disabled')
-        w['font'] = 'roboto', '12'
-        w.insert(1.0, 'text tetet')
+        w['font'] = DEFAULT_FONT
+        # w.insert('1.0', 'text tetet')
         w.configure(state='disabled')
-        w.grid(row=1, column=1, sticky=N)
+        w.grid(row=row, column=columm, sticky=N)
         return w
+
+    @staticmethod
+    def set_text(w: Text):
+        w.tag_configure('tag_en', background='#aaf')
+
+        with open('../you-can/source/01.txt') as f:
+            text = f.read()
+
+        for line in re.split(r'\n+', text):
+            line = re.sub(r'([.,?])\s+', r'\1\n', line)
+            for seq in line.split('\n'):
+                w.insert(END, seq)
+                i = int(w.index(INSERT).split('.')[0])
+                w.tag_add('tag_en', f'{i}.0', f'{i}.{len(seq)}')
+                # w.mark_set(f'mark{i}', f'{i}.0')
+                w.insert(END, '\n>>> \n')
+            w.insert(END, '  <CUT>\n')
+        print(w.tag_ranges('tag_en'))
+        # print(w.mark_names())
 
     def handle_key_text(self, event):
         if event.keycode == 36:  # Return
-            pos = self.text.index(INSERT)
-            self.text.insert(pos, '\n\n')
+            # index = self.text.index(INSERT)
+            # p = self.text.mark_next(index)
+            # print(p)
+            # self.text.insert(pos, '\n\n')
             return
         print(event)
 
