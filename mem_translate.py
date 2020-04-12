@@ -1,11 +1,15 @@
-import re
+"""
+Приложение и слой UI
+"""
 import logging
 from _thread import start_new_thread
-from tkinter import Frame, Button, Label, Text
+from tkinter import Frame, Menu
 from tkinter.constants import N, S, END, INSERT, WORD
+from tkinter.filedialog import Open
 from tkinter.scrolledtext import ScrolledText
 
 from api import translate_yandex
+from text import do_import
 
 __version__ = '0.0.1'
 
@@ -23,74 +27,60 @@ class App(Frame):
 
         self.master.title(f'Mem-translate {__version__}')
         self.master.minsize(300, 200)
+
+        menu = Menu(self.master)
+        self.master.configure(menu=menu)
+
+        menu_file = Menu(menu)
+        menu_file.add_command(label='Открыть', command=self.on_import)
+        menu.add_cascade(label='Файл', menu=menu_file)
+
+        WIDTH = 73
+
+        self.text = ScrolledText(self, bg='white', height=31, width=WIDTH, undo=True, wrap=WORD)
+        self.text['font'] = DEFAULT_FONT
+        self.text.tag_configure(TAG_NAME, background='#aaf')
+        self.text.focus_set()
+        self.text.bind('<Key>', self.on_key_text)
+        self.text.grid_configure(row=0, column=0, rowspan=2)
+
+        self.text_fuzz = ScrolledText(self, bg='white', height=15, width=WIDTH, wrap=WORD)
+        self.text_fuzz['font'] = DEFAULT_FONT
+        self.text_fuzz.bind('<Key>', lambda event: 'break')
+        self.text_fuzz.grid_configure(row=0, column=1, sticky=N)
+
+        self.text_tran = ScrolledText(self, bg='white', height=15, width=WIDTH, wrap=WORD)
+        self.text_tran['font'] = DEFAULT_FONT
+        self.text_tran.bind('<Key>', lambda event: 'break')
+        self.text_tran.grid_configure(row=1, column=1, sticky=S)
+
         self.grid_configure()
 
-        # self.hi_there = Button(self, text="Hello World\n(click me)", command=self.say_hi)
-        # # self.hi_there.pack(side="top")
-        # self.hi_there.grid(row=0)
+    def destroy(self):
+        # todo
+        print('destroy')
+        super().destroy()
 
-        self.text = self.get_widget_text(row=0, column=0, rowspan=2)
+    def on_import(self):
+        """Обработчик кнопки Открыть"""
+        filename = Open(initialdir='../you-can/source/', filetypes=(('Текст', '*.txt'),)).show()
+        ls = do_import(filename)
+        for line in ls:
+            if line:
+                self.text.insert(END, line)
+                i = self.text.index(INSERT).split('.', 1)[0]
+                self.text.tag_add(TAG_NAME, f'{i}.0', f'{i}.{len(line)}')
+                self.text.insert(END, '\n>>> \n')
+                continue
+            self.text.insert(END, '  <cut>\n')
+        log.debug(self.text.tag_ranges(TAG_NAME))
 
-        # Label(self, text='Нечёткие совпадения').grid_configure(row=0, column=1)
-        self.text_fuzz = self.get_widget_text_fuzz(row=0, column=1)
-        self.text_tran = self.get_widget_text_tran(row=1, column=1)
-
-        # self.quit = tk.Button(self, text="QUIT", fg="red", command=self.master.destroy)
-        # self.quit.pack(side="bottom")
-
-        # todo event QUIT
-
-    def get_widget_text(self, row: int, column: int, rowspan: int) -> ScrolledText:
-        """Главный виджет textArea"""
-        w = ScrolledText(self, bg='white', height=32, width=73, undo=True, wrap=WORD)
-        w['font'] = DEFAULT_FONT
-        # txt.pack(expand=True, fill='both')
-        w.bind('<Key>', self.onkey_text)
-        self.set_text(w)
-        w.grid_configure(row=row, column=column, rowspan=rowspan)
-        w.focus_set()
-        return w
-
-    def get_widget_text_fuzz(self, row: int, column: int) -> ScrolledText:
-        w = ScrolledText(self, bg='white', height=15, width=73, wrap=WORD)  # , state='disabled')
-        w['font'] = DEFAULT_FONT
-        # w.insert('1.0', 'text tetet')
-        # w.configure(state='disabled')
-        w.grid_configure(row=row, column=column, sticky=N)
-        return w
-
-    # todo merge func
-    def get_widget_text_tran(self, row: int, column: int) -> ScrolledText:
-        w = ScrolledText(self, bg='white', height=15, width=73, wrap=WORD)
-        w['font'] = DEFAULT_FONT
-        w.grid_configure(row=row, column=column, sticky=S)
-        return w
-
-    @staticmethod
-    def set_text(w: Text):
-        w.tag_configure(TAG_NAME, background='#aaf')
-
-        with open('../you-can/source/01.txt') as f:
-            text = f.read()
-
-        for line in re.split(r'\n+', text):
-            line = re.sub(r'([.,?])\s+', r'\1\n', line)
-            for seq in line.split('\n'):
-                w.insert(END, seq)
-                i = int(w.index(INSERT).split('.')[0])
-                w.tag_add(TAG_NAME, f'{i}.0', f'{i}.{len(seq)}')
-                # w.mark_set(f'mark{i}', f'{i}.0')
-                w.insert(END, '\n>>> \n')
-            w.insert(END, '  <CUT>\n')
-        print(w.tag_ranges(TAG_NAME))
-        # print(w.mark_names())
-
-    def onkey_text(self, event):
-        """Обработчик нажатий лбой клавиши в главном textArea"""
+    def on_key_text(self, event):
+        """Обработчик нажатий любой клавиши в главном textArea"""
         if event.keycode == 36:  # Return
             self.pressed_enter()
             return 'break'
-        print(event)
+        log.debug(event)
 
     def pressed_enter(self):
         t = self.text.tag_nextrange(TAG_NAME, self.text.index(INSERT))
@@ -100,13 +90,17 @@ class App(Frame):
         b, e = t
         i = int(e.split('.')[0]) + 1
         self.text.mark_set(INSERT, f'{i}.4')  # '>>> '
+        self.text.see(INSERT)
 
         text = self.text.get(b, e)
         self.text_tran.delete('1.0', END)
         start_new_thread(self.thread_translate, (text,))
 
     def thread_translate(self, text):
-        text2 = translate_yandex(text)
+        try:
+            text2 = translate_yandex(text)
+        except BaseException as ex:
+            text2 = str(ex)
         self.text_tran.insert('1.0', text2)
 
 
