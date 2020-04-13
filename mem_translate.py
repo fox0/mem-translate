@@ -4,14 +4,17 @@
 import logging
 from _thread import start_new_thread
 from tkinter import Frame, Menu
-from tkinter.constants import N, S, END, INSERT, WORD
+# from tkinter.constants import N, S, END, INSERT, WORD
 from tkinter.filedialog import Open
 from tkinter.scrolledtext import ScrolledText
+from typing import List
+
+from fuzzywuzzy.process import extractBests
 
 from api import translate_yandex
-from text import do_import
+from text import do_import, PREFIX_TRANSLATE, PREFIX_CUT
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 
 log = logging.getLogger(__name__)
 
@@ -32,79 +35,96 @@ class App(Frame):
         self.master.configure(menu=menu)
 
         menu_file = Menu(menu)
-        menu_file.add_command(label='Открыть', command=self.on_import)
+        menu_file.add_command(label='Импорт', command=self.on_import)
         menu.add_cascade(label='Файл', menu=menu_file)
 
-        WIDTH = 73
+        width = 73
 
-        self.text = ScrolledText(self, bg='white', height=31, width=WIDTH, undo=True, wrap=WORD)
+        self.text = ScrolledText(self, bg='white', height=31, width=width, undo=True, wrap='word')
         self.text['font'] = DEFAULT_FONT
         self.text.tag_configure(TAG_NAME, background='#aaf')
         self.text.focus_set()
         self.text.bind('<Key>', self.on_key_text)
         self.text.grid_configure(row=0, column=0, rowspan=2)
 
-        self.text_fuzz = ScrolledText(self, bg='white', height=15, width=WIDTH, wrap=WORD)
+        self.text_fuzz = ScrolledText(self, bg='white', height=15, width=width, wrap='word')
         self.text_fuzz['font'] = DEFAULT_FONT
         self.text_fuzz.bind('<Key>', lambda event: 'break')
-        self.text_fuzz.grid_configure(row=0, column=1, sticky=N)
+        self.text_fuzz.grid_configure(row=0, column=1, sticky='n')
 
-        self.text_tran = ScrolledText(self, bg='white', height=15, width=WIDTH, wrap=WORD)
+        self.text_tran = ScrolledText(self, bg='white', height=15, width=width, wrap='word')
         self.text_tran['font'] = DEFAULT_FONT
         self.text_tran.bind('<Key>', lambda event: 'break')
-        self.text_tran.grid_configure(row=1, column=1, sticky=S)
+        self.text_tran.grid_configure(row=1, column=1, sticky='s')
 
         self.grid_configure()
 
     def destroy(self):
         # todo
-        print('destroy')
+        log.info('destroy')
         super().destroy()
 
     def on_import(self):
-        """Обработчик кнопки Открыть"""
         filename = Open(initialdir='../you-can/source/', filetypes=(('Текст', '*.txt'),)).show()
         ls = do_import(filename)
+        self.do_open(ls)
+
+    def do_open(self, ls: List[str]):
+        """Отрисовать текст"""
         for line in ls:
-            if line:
-                self.text.insert(END, line)
-                i = self.text.index(INSERT).split('.', 1)[0]
+            self.text.insert('end', line)
+            # добавляем немного подсветки
+            # if not line.startswith(PREFIX_TRANSLATE) and line != PREFIX_CUT:
+            if not line.startswith('>>>'):
+                i = self.text.index('insert').split('.', 1)[0]
                 self.text.tag_add(TAG_NAME, f'{i}.0', f'{i}.{len(line)}')
-                self.text.insert(END, '\n>>> \n')
-                continue
-            self.text.insert(END, '  <cut>\n')
+            self.text.insert('end', '\n')
         log.debug(self.text.tag_ranges(TAG_NAME))
 
     def on_key_text(self, event):
         """Обработчик нажатий любой клавиши в главном textArea"""
         if event.keycode == 36:  # Return
-            self.pressed_enter()
+            self.do_enter()
             return 'break'
         log.debug(event)
 
-    def pressed_enter(self):
-        t = self.text.tag_nextrange(TAG_NAME, self.text.index(INSERT))
-        if not t:
+    def do_enter(self):
+        tag_range = self.text.tag_nextrange(TAG_NAME, self.text.index('insert'))
+        if not tag_range:
             return
+        index1, index2 = tag_range
 
-        b, e = t
-        i = int(e.split('.')[0]) + 1
-        self.text.mark_set(INSERT, f'{i}.4')  # '>>> '
-        self.text.see(INSERT)
+        # двигаем курсор
+        index = int(index2.split('.')[0]) + 1
+        self.text.mark_set('insert', f'{index}.{len(PREFIX_TRANSLATE)}')
+        self.text.see('insert')
 
-        text = self.text.get(b, e)
-        self.text_tran.delete('1.0', END)
+        text: str = self.text.get(index1, index2)
+
+        # переводим текст
+        self.text_tran.delete('1.0', 'end')
         start_new_thread(self.thread_translate, (text,))
 
-    def thread_translate(self, text):
+        # ...
+        self.text_fuzz.delete('1.0', 'end')
+        start_new_thread(self.thread_fuzz, (text,))
+
+    def thread_translate(self, text: str):
         try:
             text2 = translate_yandex(text)
         except BaseException as ex:
             text2 = str(ex)
         self.text_tran.insert('1.0', text2)
 
+    def thread_fuzz(self, text: str):
+        # todo закешировать + парсить перевод + перенести в text.py
+        ls: list = self.text.get('1.0', 'end').split('\n')
+        ls.remove(text)
+        choices = [f'{i + 1}: {line}' for i, line in enumerate(ls) if not line.startswith('>>>')]
+        result = [f'{line} ({p})' for line, p in extractBests(text, choices, score_cutoff=1, limit=7)]
+        self.text_fuzz.insert('1.0', '\n'.join(result))
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
-    app = App()
-    app.mainloop()
+    App().mainloop()
