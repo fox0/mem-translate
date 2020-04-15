@@ -1,3 +1,6 @@
+"""
+Слой логики по работе с текстом
+"""
 import re
 from typing import List
 
