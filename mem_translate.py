@@ -1,22 +1,21 @@
 """
 Приложение и слой UI
 """
+import heapq
 import logging
-from difflib import SequenceMatcher
+import re
 from tkinter import Frame, Menu
 # from tkinter.constants import N, S, END, INSERT, WORD
 from tkinter.filedialog import Open
 from tkinter.scrolledtext import ScrolledText
 from typing import List
 
-from fuzzywuzzy.process import extractBests
-
 from _thread import start_new_thread
 
 from api import translate_yandex
 from text import do_import, PREFIX_TRANSLATE
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 log = logging.getLogger(__name__)
 
@@ -129,14 +128,29 @@ class App(Frame):
         ls: list = self.text.get('1.0', 'end').split('\n')
         ls.remove(text)
         choices = [f'{i + 1}: {line}' for i, line in enumerate(ls) if not line.startswith('>>>')]
-        result = [f'{line} ({p})' for line, p in extractBests(text, choices, score_cutoff=1, limit=7)]
+
+        # result = [f'{line} ({p})' for line, p in extractBests(text, choices, score_cutoff=1, limit=7)]
+
+        # result = [(line, fuzz.token_set_ratio(line, text)) for line in choices]
+
+        ww = set(re.findall(r'\w{4,}', text)) - {'that', 'That', 'only', 'Only'}
+        result = []
+        for line in choices:
+            p = len(set(re.findall(r'\w{4,}', line)) & ww)
+            if p > 0:
+                result.append((line, p))
+        result = heapq.nlargest(7, result, key=lambda x: x[1])
+        result = [line for line, p in result]
 
         # self.text_fuzz.insert('1.0', '\n'.join(result))
         for line in result:
             self.text_fuzz.insert('end', line)
             i = self.text_fuzz.index('insert').split('.', 1)[0]
-            for m in SequenceMatcher(None, line.lower(), text.lower()).get_matching_blocks():
-                self.text_fuzz.tag_add(TAG_BLUE, f'{i}.{m.a}', f'{i}.{m.a + m.size}')
+            # for m in SequenceMatcher(None, line.lower(), text.lower()).get_matching_blocks():
+            #     self.text_fuzz.tag_add(TAG_BLUE, f'{i}.{m.a}', f'{i}.{m.a + m.size}')
+            for w in ww:
+                for m in re.finditer(w, line):
+                    self.text_fuzz.tag_add(TAG_BLUE, f'{i}.{m.start()}', f'{i}.{m.end()}')
             self.text_fuzz.insert('end', '\n')
 
 
